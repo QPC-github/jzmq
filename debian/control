@@ -2,7 +2,7 @@ Source: jzmq
 Section: libs
 Priority: optional
 Maintainer: Alois Belaska <alois.belaska@gmail.com>
-Build-Depends: debhelper (>= 7), java-runtime, libzmq-dev [amd64 i386]
+Build-Depends: debhelper (>= 7), java-runtime, pkg-config, libzmq-dev [amd64 i386]
 Standards-Version: 3.9.1
 Homepage: https://github.com/zeromq/jzmq
 
