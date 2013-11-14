@@ -1,0 +1,10 @@
+# ex: ft=debcontrol
+
+Section: misc
+Priority: optional
+Standards-Version: 3.9.2
+
+Package: jzmq-dummy
+Version: 1.0
+Description: Dummy package for jzmq on lucid
+ Just to make apt-builder happy.
