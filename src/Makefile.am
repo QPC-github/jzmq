@@ -65,7 +65,7 @@ CLEANFILES = \
 $(JZMQ_H_FILES): org/zeromq/ZMQ.class
 	$(CLASSPATH_ENV) $(JAVAH) -jni -classpath . org.zeromq.ZMQ
 
-./org/zeromq/ZMQ.class: classdist_noinst.stamp
+./org/zeromq/ZMQ.class: classnoinst.stamp
 
 $(srcdir)/ZMQ.cpp: \
 	$(JZMQ_H_FILES) \
