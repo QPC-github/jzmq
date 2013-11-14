@@ -22,4 +22,5 @@ apt-builder-build-lucid:
 	mv jzmq-dummy_* ..
 
 apt-builder-build-precise:
+	./autogen.sh
 	DEB_BUILD_OPTIONS= MAKEFLAGS= debuild -i -us -uc -b
