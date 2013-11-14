@@ -1,3 +1,5 @@
+RELEASE=$(shell lsb_release -cs)
+
 all:
 	@echo "Run using apt-builder, not directly."
 	@exit 1
@@ -8,5 +10,16 @@ apt-builder-fetch:
 apt-builder-deps:
 	# noop
 
-apt-builder-build:
+apt-builder-build: apt-builder-build-$(RELEASE)
+
+apt-builder-build-lucid:
+	rm -f jzmq-dummy_*
+	equivs-build -f apt-builder.equivs || true
+	sed -i -e "/^Architecture:/s/ source\>//" \
+		-e "/\(\.tar\.gz\|\.dsc\)$$/d" \
+		-e "/^Distribution: /s/: .*/: $(RELEASE)/" \
+		jzmq-dummy_*.changes
+	mv jzmq-dummy_* ..
+
+apt-bulider-build-precise:
 	DEB_BUILD_OPTIONS= MAKEFLAGS= debuild -i -us -uc -b
