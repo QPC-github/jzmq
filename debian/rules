@@ -2,6 +2,8 @@
 
 #export DH_VERBOSE=1
 
+export JAVA_HOME=/usr/lib/jvm/default-java
+
 DEB_HOST_ARCH := $(shell dpkg-architecture -qDEB_HOST_ARCH)
 
 ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
