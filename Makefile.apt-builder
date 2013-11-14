@@ -1,0 +1,12 @@
+all:
+	@echo "Run using apt-builder, not directly."
+	@exit 1
+
+apt-builder-fetch:
+	# noop
+
+apt-builder-deps:
+	# noop
+
+apt-builder-build:
+	DEB_BUILD_OPTIONS= MAKEFLAGS= debuild -i -us -uc -b
