@@ -29,6 +29,7 @@
 /** Handle to Java's Socket::socketHandle. */
 static jfieldID socket_handle_fid = NULL;
 
+static zmq_msg_t* do_read(JNIEnv *env, jobject obj, zmq_msg_t *message, int flags);
 
 static void ensure_socket (JNIEnv *env,
                            jobject obj);
@@ -100,22 +101,27 @@ JNIEXPORT jlong JNICALL Java_org_zeromq_ZMQ_00024Socket_getLongSockopt (JNIEnv *
 {
     switch (option) {
 #if ZMQ_VERSION >= ZMQ_MAKE_VERSION(3,0,0)
-    case ZMQ_RECONNECT_IVL:
-    case ZMQ_RECONNECT_IVL_MAX:
     case ZMQ_BACKLOG:
     case ZMQ_MAXMSGSIZE:
     case ZMQ_SNDHWM:
     case ZMQ_RCVHWM:
+    case ZMQ_MULTICAST_HOPS:
+    case ZMQ_RCVTIMEO:
+    case ZMQ_SNDTIMEO:
 #else
     case ZMQ_HWM:
     case ZMQ_SWAP:
     case ZMQ_MCAST_LOOP:
+#endif
+#if ZMQ_VERSION >= ZMQ_MAKE_VERSION(2,1,10)
+    case ZMQ_RECONNECT_IVL:
+    case ZMQ_RECONNECT_IVL_MAX:
+#endif
 #if ZMQ_VERSION >= ZMQ_MAKE_VERSION(2,1,0)
     case ZMQ_TYPE:
     case ZMQ_FD:
     case ZMQ_EVENTS:
     case ZMQ_LINGER:
-#endif
 #endif
     case ZMQ_AFFINITY:
     case ZMQ_RATE:
@@ -155,6 +161,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_zeromq_ZMQ_00024Socket_getBytesSockopt (JN
                                                                               jint option)
 {
     switch (option) {
+#if (ZMQ_VERSION_MAJOR <= 3)
     case ZMQ_IDENTITY:
         {
             void *s = get_socket (env, obj, 1);
@@ -178,6 +185,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_zeromq_ZMQ_00024Socket_getBytesSockopt (JN
             env->SetByteArrayRegion (array, 0, optvallen, (const jbyte*) optval);
             return array;
         }
+#endif
     default:
         raise_exception (env, EINVAL);
         return env->NewByteArray(0);
@@ -194,19 +202,24 @@ JNIEXPORT void JNICALL Java_org_zeromq_ZMQ_00024Socket_setLongSockopt (JNIEnv *e
 {
     switch (option) {
 #if ZMQ_VERSION >= ZMQ_MAKE_VERSION(3,0,0)
-    case ZMQ_RECONNECT_IVL:
-    case ZMQ_RECONNECT_IVL_MAX:
     case ZMQ_BACKLOG:
     case ZMQ_MAXMSGSIZE:
     case ZMQ_SNDHWM:
     case ZMQ_RCVHWM:
+    case ZMQ_MULTICAST_HOPS:
+    case ZMQ_RCVTIMEO:
+    case ZMQ_SNDTIMEO:
 #else
     case ZMQ_HWM:
     case ZMQ_SWAP:
     case ZMQ_MCAST_LOOP:
+#endif
+#if ZMQ_VERSION >= ZMQ_MAKE_VERSION(2,1,10)
+    case ZMQ_RECONNECT_IVL:
+    case ZMQ_RECONNECT_IVL_MAX:
+#endif
 #if ZMQ_VERSION >= ZMQ_MAKE_VERSION(2,1,0)
     case ZMQ_LINGER:
-#endif
 #endif
     case ZMQ_AFFINITY:
     case ZMQ_RATE:
@@ -218,9 +231,15 @@ JNIEXPORT void JNICALL Java_org_zeromq_ZMQ_00024Socket_setLongSockopt (JNIEnv *e
             int rc = 0;
             int err = 0;
             uint64_t optval = (uint64_t) value;
-            
+
 #if ZMQ_VERSION >= ZMQ_MAKE_VERSION(2,1,0)
-            if (option == ZMQ_LINGER) {
+            if(
+                (option == ZMQ_LINGER)
+#if ZMQ_VERSION >= ZMQ_MAKE_VERSION(2,1,10)
+                || (option == ZMQ_RECONNECT_IVL)
+                || (option == ZMQ_RECONNECT_IVL_MAX)
+#endif
+            ) {
                 int ival = (int) optval;
                 size_t optvallen = sizeof(ival);
                 rc = zmq_setsockopt (s, option, &ival, optvallen);
@@ -252,7 +271,9 @@ JNIEXPORT void JNICALL Java_org_zeromq_ZMQ_00024Socket_setBytesSockopt (JNIEnv *
                                                                         jbyteArray value)
 {
     switch (option) {
+#if (ZMQ_VERSION_MAJOR <= 3)
     case ZMQ_IDENTITY:
+#endif
     case ZMQ_SUBSCRIBE:
     case ZMQ_UNSUBSCRIBE:
         {
@@ -410,49 +431,44 @@ JNIEXPORT jboolean JNICALL Java_org_zeromq_ZMQ_00024Socket_send (JNIEnv *env,
 }
 
 /**
+ * Called by Java's Socket::recv(byte[] buffer, int offset, int len, int flags).
+ */
+JNIEXPORT jint JNICALL Java_org_zeromq_ZMQ_00024Socket_recv___3BIII (JNIEnv *env, 
+                                                                     jobject obj, 
+                                                                     jbyteArray buff, 
+                                                                     jint offset, 
+                                                                     jint len, 
+                                                                     jint flags)
+{
+    zmq_msg_t message;
+    if (!do_read(env,obj,&message,flags)) {
+        return -1;
+    }
+    // No errors are defined for these two functions. Should they?
+    int sz = zmq_msg_size (&message);
+    void* pd = zmq_msg_data (&message);
+    
+    int stored = sz > len ? len : sz;
+    env->SetByteArrayRegion (buff, offset, stored, (jbyte*) pd);
+
+    int rc = zmq_msg_close(&message);
+    assert(rc == 0);
+
+    return stored;
+}
+
+
+/**
  * Called by Java's Socket::recv(int flags).
  */
-JNIEXPORT jbyteArray JNICALL Java_org_zeromq_ZMQ_00024Socket_recv (JNIEnv *env,
-                                                                   jobject obj,
-                                                                   jint flags)
+JNIEXPORT jbyteArray JNICALL Java_org_zeromq_ZMQ_00024Socket_recv__I (JNIEnv *env,
+                                                                      jobject obj,
+                                                                      jint flags)
 {
-    void *s = get_socket (env, obj, 1);
-
     zmq_msg_t message;
-    int rc = zmq_msg_init (&message);
-    int err = zmq_errno();
-    if (rc != 0) {
-        raise_exception (env, err);
+    if (!do_read(env,obj,&message,flags)) {
         return NULL;
     }
-
-#if ZMQ_VERSION >= ZMQ_MAKE_VERSION(3,0,0)
-    rc = zmq_recvmsg (s, &message, flags);
-#else
-    rc = zmq_recv (s, &message, flags);
-#endif
-    err = zmq_errno();
-    if (rc < 0 && err == EAGAIN) {
-        rc = zmq_msg_close (&message);
-        err = zmq_errno();
-        if (rc != 0) {
-            raise_exception (env, err);
-            return NULL;
-        }
-        return NULL;
-    }
-
-    if (rc < 0) {
-        raise_exception (env, err);
-        rc = zmq_msg_close (&message);
-        err = zmq_errno();
-        if (rc != 0) {
-            raise_exception (env, err);
-            return NULL;
-        }
-        return NULL;
-    }
-
     // No errors are defined for these two functions. Should they?
     int sz = zmq_msg_size (&message);
     void* pd = zmq_msg_data (&message);
@@ -465,12 +481,56 @@ JNIEXPORT jbyteArray JNICALL Java_org_zeromq_ZMQ_00024Socket_recv (JNIEnv *env,
 
     env->SetByteArrayRegion (data, 0, sz, (jbyte*) pd);
 
-    rc = zmq_msg_close(&message);
-    assert (rc == 0);
+    int rc = zmq_msg_close(&message);
+    assert(rc == 0);
 
     return data;
 }
 
+
+/**
+ * Issue a read on the socket.
+ */
+static zmq_msg_t* do_read(JNIEnv *env, jobject obj, zmq_msg_t *message, int flags)
+{
+    void *s = get_socket (env, obj, 1);
+
+    int rc = zmq_msg_init (message);
+    int err = zmq_errno();
+    if (rc != 0) {
+        raise_exception (env, err);
+        return NULL;
+    }
+
+#if ZMQ_VERSION >= ZMQ_MAKE_VERSION(3,0,0)
+    rc = zmq_recvmsg (s, message, flags);
+#else
+    rc = zmq_recv (s, message, flags);
+#endif
+    err = zmq_errno();
+    if (rc < 0 && err == EAGAIN) {
+        rc = zmq_msg_close (message);
+        err = zmq_errno();
+        if (rc != 0) {
+            raise_exception (env, err);
+            return NULL;
+        }
+        return NULL;
+    }
+
+    if (rc < 0) {
+        raise_exception (env, err);
+        rc = zmq_msg_close (message);
+        err = zmq_errno();
+        if (rc != 0) {
+            raise_exception (env, err);
+            return NULL;
+        }
+        return NULL;
+    }
+    
+    return message;
+}
 
 /**
  * Make sure we have a valid pointer to Java's Socket::socketHandle.
@@ -512,6 +572,7 @@ static void put_socket (JNIEnv *env,
 {
     ensure_socket (env, obj);
     env->SetLongField (obj, socket_handle_fid, (jlong) s);
+    
 }
 
 /**
